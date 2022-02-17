@@ -45,6 +45,20 @@ class ContextRouterSuite extends Http4sSuite {
       Ok("invisible")
   }
 
+  val numElem =
+    ContextRouter.Segment[Unit]((_, s) => OptionT.fromOption[IO](s.decoded().toIntOption))
+  val element = ContextRouter.Segment[Unit]((_, s) => OptionT.pure[IO](s.decoded()))
+  val routable = ContextRouter.of(
+    "/" -> ContextRoutes.of[Unit, IO] { case GET -> Root as _ => Ok("static") },
+    "/2" -> ContextRouter.of[IO, Unit](
+      element -> ContextRoutes.of { case GET -> Root as x => Ok(x) }
+    ),
+    numElem -> ContextRoutes.of { case GET -> Root as x => Ok(s"${x * 2}") },
+    element -> ContextRoutes.of { case GET -> Root as x =>
+      Ok(x)
+    },
+  )
+
   val notFound = ContextRoutes.of[Unit, IO] { case _ as _ =>
     NotFound("Custom NotFound")
   }
@@ -62,7 +76,27 @@ class ContextRouterSuite extends Http4sSuite {
     "/" -> root,
     "/shadow" -> shadow,
     "/letters" -> letters,
+    "/routable" -> routable,
   )
+
+  test("routable") {
+    service
+      .orNotFound(ContextRequest((), Request[IO](GET, uri"/routable")))
+      .flatMap(_.as[String])
+      .assertEquals("static") *>
+      service
+        .orNotFound(ContextRequest((), Request[IO](GET, uri"/routable/2")))
+        .flatMap(_.as[String])
+        .assertEquals("4") *>
+      service
+        .orNotFound(ContextRequest((), Request[IO](GET, uri"/routable/2/3")))
+        .flatMap(_.as[String])
+        .assertEquals("3") *>
+      service
+        .orNotFound(ContextRequest((), Request[IO](GET, uri"/routable/foo")))
+        .flatMap(_.as[String])
+        .assertEquals("foo")
+  }
 
   test("translate mount prefixes") {
     service
